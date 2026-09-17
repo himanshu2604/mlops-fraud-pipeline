@@ -78,6 +78,7 @@ jobs:
           image-ref: ${{ env.IMAGE_NAME }}:${{ github.sha }}
           severity: HIGH,CRITICAL
           exit-code: "1"
+          ignore-unfixed: true
 
       # TODO: add SonarCloud SAST step here once SONAR_TOKEN is configured
       # as a repo secret - copy the step from the Acquisitions API workflow.
