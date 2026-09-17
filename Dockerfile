@@ -7,13 +7,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1
 
 RUN apt-get update \
-    && apt-get upgrade -y \
-    && apt-get clean \
+    && apt-get install -y --no-install-recommends \
+        build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN python -m pip install --upgrade pip \
-    && python -m pip install -r requirements.txt
+RUN python -m pip install --upgrade pip setuptools wheel \
+    && python -m pip install --no-cache-dir -r requirements.txt
 
 COPY src/ src/
 COPY models/ models/
