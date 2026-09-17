@@ -7,6 +7,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1
 
 RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
     && apt-get install -y --no-install-recommends \
         build-essential \
     && rm -rf /var/lib/apt/lists/*
