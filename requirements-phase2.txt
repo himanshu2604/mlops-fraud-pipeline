@@ -1,0 +1,4 @@
+# Install once you reach the drift-detection / continuous-training phase (Week 3+)
+# pip install -r requirements-phase2.txt --break-system-packages
+evidently==0.4.33
+great-expectations==0.18.19

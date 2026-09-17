@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+.DS_Store
+
+# Generated data / model artifacts - regenerate via src/generate_data.py + src/train.py
+data/*.csv
+models/*.pkl
+models/metrics.json
+mlruns/
+mlartifacts/

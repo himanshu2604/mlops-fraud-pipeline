@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository }}
+
+jobs:
+  lint-test-train:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - run: pip install -r requirements.txt
+
+      - name: Lint
+        run: ruff check src/ tests/
+
+      - name: Unit tests
+        run: pytest tests/ -v
+
+      - name: Generate data (stand-in for real dataset)
+        run: python src/generate_data.py
+
+      - name: Train model
+        run: python src/train.py
+
+      # Quality gate: fail the build if the newly trained model regresses
+      # below a minimum bar. Tighten/replace this threshold once you're
+      # comparing against a champion model in the registry (Week 3+).
+      - name: Enforce minimum ROC AUC
+        run: |
+          python -c "
+          import json, sys
+          metrics = json.load(open('models/metrics.json'))
+          auc = metrics['roc_auc']
+          print(f'roc_auc={auc}')
+          sys.exit(0 if auc >= 0.85 else 1)
+          "
+
+      - name: Upload model artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: model
+          path: models/
+
+  build-scan-push:
+    needs: lint-test-train
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: model
+          path: models/
+
+      - name: Build image
+        run: docker build -t ${{ env.IMAGE_NAME }}:${{ github.sha }} .
+
+      # Same hard gate pattern as the Acquisitions API pipeline: block on
+      # CVSS >= 7.0 findings instead of just reporting them.
+      - name: Trivy scan (fail on HIGH/CRITICAL)
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+
+      # TODO: add SonarCloud SAST step here once SONAR_TOKEN is configured
+      # as a repo secret - copy the step from the Acquisitions API workflow.
+
+      - name: Log in to GHCR
+        if: github.ref == 'refs/heads/main'
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Push image
+        if: github.ref == 'refs/heads/main'
+        run: |
+          docker tag ${{ env.IMAGE_NAME }}:${{ github.sha }} ${{ env.IMAGE_NAME }}:latest
+          docker push ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          docker push ${{ env.IMAGE_NAME }}:latest
