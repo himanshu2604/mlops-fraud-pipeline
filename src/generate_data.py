@@ -57,8 +57,9 @@ def generate(n_rows: int = N_ROWS, fraud_rate: float = FRAUD_RATE, seed: int = R
 
 
 if __name__ == "__main__":
+    from pathlib import Path
+
     df = generate()
     out_path = "data/transactions.csv"
+    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(out_path, index=False)
-    print(f"Wrote {len(df)} rows ({df['Class'].sum()} fraud) to {out_path}")
-    print(df["batch"].value_counts().sort_index())
