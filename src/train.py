@@ -59,7 +59,7 @@ def train_model(df: pd.DataFrame, random_state: int = 42):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data-path", default="data/transactions.csv")
+    parser.add_argument("--data-path", default="data/creditcard.csv")
     parser.add_argument("--model-out", default="models/model.pkl")
     parser.add_argument("--experiment", default="fraud-detection")
     args = parser.parse_args()
