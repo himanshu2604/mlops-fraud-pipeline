@@ -62,33 +62,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/download-artifact@v4
-        with:
-          name: model
-          path: models/
-
       - name: Build image
         run: docker build -t ${{ env.IMAGE_NAME }}:${{ github.sha }} .
 
       # Same hard gate pattern as the Acquisitions API pipeline: block on
       # CVSS >= 7.0 findings instead of just reporting them.
-
       - name: Trivy scan (fail on HIGH/CRITICAL)
         uses: aquasecurity/trivy-action@0.35.0
         with:
           image-ref: ${{ env.IMAGE_NAME }}:${{ github.sha }}
           severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          format: json
-          output: trivy-results.json
-          exit-code: "0"
-
-      - name: Upload Trivy report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: trivy-results
-          path: trivy-results.json
+          exit-code: "1"
 
       # TODO: add SonarCloud SAST step here once SONAR_TOKEN is configured
       # as a repo secret - copy the step from the Acquisitions API workflow.

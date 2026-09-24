@@ -13,6 +13,8 @@ A `batch` column (0-4) simulates five sequential time windows so you can
 later feed batches through Evidently to simulate drift between an early
 "reference" batch and a later "current" batch.
 """
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 
@@ -57,9 +59,9 @@ def generate(n_rows: int = N_ROWS, fraud_rate: float = FRAUD_RATE, seed: int = R
 
 
 if __name__ == "__main__":
-    from pathlib import Path
-
     df = generate()
     out_path = "data/transactions.csv"
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(out_path, index=False)
+    print(f"Wrote {len(df)} rows ({df['Class'].sum()} fraud) to {out_path}")
+    print(df["batch"].value_counts().sort_index())

@@ -1,0 +1,22 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: fraud-detection-service
+  namespace: mlops-fraud
+  labels:
+    # Required: kube-prometheus-stack's Prometheus only picks up
+    # ServiceMonitors carrying this label, matching the Helm release name
+    # (release: monitoring, if you installed with `helm install monitoring ...`).
+    # If your release is named something else, change this to match.
+    release: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: fraud-detection-service
+  namespaceSelector:
+    matchNames:
+      - mlops-fraud
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s

@@ -1,0 +1,58 @@
+name: Drift Check
+
+on:
+  schedule:
+    - cron: "0 6 * * *"  # daily at 06:00 UTC - adjust to taste
+  workflow_dispatch:
+    inputs:
+      simulate_drift:
+        description: "Force a simulated drift signal (for testing the loop end-to-end)"
+        type: boolean
+        default: false
+
+jobs:
+  check-drift:
+    runs-on: ubuntu-latest
+    outputs:
+      drift_detected: ${{ steps.drift.outputs.drift_detected }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - run: pip install -r requirements.txt
+
+      # Stand-in for pulling real recent production data. Swap this for
+      # however you actually land fresh data once this isn't synthetic.
+      - name: Generate data
+        run: python src/generate_data.py
+
+      - name: Check for drift
+        id: drift
+        run: |
+          if [ "${{ inputs.simulate_drift }}" = "true" ]; then
+            python src/monitor_drift.py --simulate-drift
+          else
+            python src/monitor_drift.py
+          fi
+
+      - name: Upload drift report
+        uses: actions/upload-artifact@v4
+        with:
+          name: drift-report
+          path: models/drift_report.json
+
+  trigger-retrain:
+    needs: check-drift
+    if: needs.check-drift.outputs.drift_detected == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch retrain workflow
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api repos/${{ github.repository }}/dispatches \
+            -f event_type=model-drift-detected

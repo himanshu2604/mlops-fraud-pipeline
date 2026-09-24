@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fraud-model-config
+  namespace: mlops-fraud
+data:
+  # Updated automatically by .github/workflows/retrain.yml when a newly
+  # trained model beats the current champion. ArgoCD picks up the change
+  # to this file and rolls the deployment - this is the whole CT loop.
+  MODEL_URI: "models/production_model_20260920T125738Z.pkl"

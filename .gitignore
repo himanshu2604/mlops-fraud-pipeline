@@ -9,5 +9,9 @@ venv/
 data/*.csv
 models/*.pkl
 models/metrics.json
+models/drift_report.json
 mlruns/
 mlartifacts/
+
+# models/champion_metrics.json is intentionally NOT ignored - it's the
+# git-tracked record of what model is currently promoted to production.

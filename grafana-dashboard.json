@@ -1,0 +1,57 @@
+{
+  "title": "Fraud Detection Service",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Request rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(rate(predict_requests_total[1m]))",
+          "legendFormat": "requests/sec"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "p95 prediction latency",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(predict_request_latency_seconds_bucket[5m]))",
+          "legendFormat": "p95 latency (s)"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Predicted class distribution",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "sum by (predicted_class) (rate(predict_class_total[5m]))",
+          "legendFormat": "class {{predicted_class}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Model load outcomes",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "expr": "sum by (outcome, scheme) (increase(model_load_total[5m]))",
+          "legendFormat": "{{outcome}} ({{scheme}})"
+        }
+      ]
+    }
+  ]
+}

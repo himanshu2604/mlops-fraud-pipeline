@@ -6,7 +6,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/himanshu2604/mlops-fraud-pipeline.git
+    repoURL: https://github.com/OWNER/mlops-fraud-pipeline.git
     targetRevision: HEAD
     path: k8s
   destination:

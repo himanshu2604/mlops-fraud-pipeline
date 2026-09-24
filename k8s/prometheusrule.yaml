@@ -1,0 +1,37 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: fraud-detection-alerts
+  namespace: mlops-fraud
+  labels:
+    release: monitoring
+spec:
+  groups:
+    - name: fraud-detection-service
+      rules:
+        - alert: ModelLoadFailed
+          expr: increase(model_load_total{outcome="failure"}[5m]) > 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Fraud detection service failed to load its model"
+            description: "The serving pod couldn't load the model from MODEL_URI. Check the ConfigMap and, if using S3, the AWS credentials secret."
+
+        - alert: HighPredictionLatency
+          expr: histogram_quantile(0.95, rate(predict_request_latency_seconds_bucket[5m])) > 0.5
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "p95 prediction latency above 500ms"
+            description: "Fraud detection predictions are taking longer than expected."
+
+        - alert: ServiceDown
+          expr: up{job="fraud-detection-service"} == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Fraud detection service is not being scraped"
+            description: "Prometheus can't reach the service - check if the pod is running and the Service/Ingress are healthy."
