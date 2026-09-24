@@ -28,8 +28,13 @@ jobs:
       - name: Unit tests
         run: pytest tests/ -v
 
-      - name: Generate data (stand-in for real dataset)
+      - name: Generate data
         run: python src/generate_data.py
+
+      - name: Verify generated data
+        run: |
+          ls -lah data/
+          test -f data/creditcard.csv
 
       - name: Train model
         run: python src/train.py
