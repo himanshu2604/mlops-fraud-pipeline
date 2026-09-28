@@ -1,4 +1,4 @@
-.PHONY: install gen-data train test serve docker-build docker-run promote drift-check drift-simulate
+.PHONY: install gen-data train train-real test serve docker-build docker-run promote drift-check drift-check-real drift-simulate
 
 install:
 	pip install -r requirements.txt
@@ -8,6 +8,9 @@ gen-data:
 
 train:
 	python src/train.py
+
+train-real:
+	python src/train.py --data-path data/creditcard.csv
 
 test:
 	pytest tests/ -v
@@ -26,6 +29,9 @@ promote:
 
 drift-check:
 	python src/monitor_drift.py
+
+drift-check-real:
+	python src/monitor_drift.py --data-path data/creditcard.csv
 
 drift-simulate:
 	python src/monitor_drift.py --simulate-drift

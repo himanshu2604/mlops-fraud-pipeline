@@ -6,7 +6,7 @@ Run locally:
 
 Endpoints:
     GET  /health    - liveness/readiness probe target
-    POST /predict   - {"V1": 0.1, ..., "V10": 0.2, "Amount": 45.0} -> prediction
+    POST /predict   - {"V1": 0.1, ..., "V28": 0.2, "Amount": 45.0} -> prediction
     GET  /metrics   - Prometheus scrape target
 
 Model loading:
@@ -31,12 +31,13 @@ import joblib
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Response
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
-from pydantic import BaseModel
+from pydantic import create_model
+
+from src.schema import FEATURE_COLUMNS
 
 logger = logging.getLogger("uvicorn.error")
 
 MODEL_URI = os.environ.get("MODEL_URI", "models/model.pkl")
-FEATURE_COLUMNS = [f"V{i+1}" for i in range(10)] + ["Amount"]
 
 app = FastAPI(title="Fraud Detection Service")
 
@@ -85,18 +86,12 @@ def _resolve_model_path(uri: str) -> tuple[str, str]:
     return uri, "local"  # plain filesystem path
 
 
-class Transaction(BaseModel):
-    V1: float
-    V2: float
-    V3: float
-    V4: float
-    V5: float
-    V6: float
-    V7: float
-    V8: float
-    V9: float
-    V10: float
-    Amount: float
+# Generated from FEATURE_COLUMNS rather than hand-typed, so this never
+# drifts out of sync with the schema again the way it did when the dataset
+# changed from 10 synthetic features to the real dataset's 28.
+Transaction = create_model(
+    "Transaction", **{col: (float, ...) for col in FEATURE_COLUMNS}
+)
 
 
 @app.on_event("startup")

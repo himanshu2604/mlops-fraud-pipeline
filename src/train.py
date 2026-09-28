@@ -12,6 +12,7 @@ instead - that's the natural Week-2/3 upgrade.
 """
 import argparse
 import json
+import sys
 from pathlib import Path
 
 import joblib
@@ -21,9 +22,8 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import f1_score, precision_score, recall_score, roc_auc_score
 from sklearn.model_selection import train_test_split
 
-
-FEATURE_COLUMNS = [f"V{i+1}" for i in range(10)] + ["Amount"]
-TARGET_COLUMN = "Class"
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from src.schema import FEATURE_COLUMNS, TARGET_COLUMN
 
 
 def load_data(path: str) -> pd.DataFrame:
@@ -59,7 +59,13 @@ def train_model(df: pd.DataFrame, random_state: int = 42):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data-path", default="data/creditcard.csv")
+    parser.add_argument(
+        "--data-path",
+        default="data/transactions.csv",
+        help="Defaults to the synthetic stand-in (what CI uses). Point this "
+        "at data/creditcard.csv for the real Kaggle dataset locally, e.g. "
+        "--data-path data/creditcard.csv",
+    )
     parser.add_argument("--model-out", default="models/model.pkl")
     parser.add_argument("--experiment", default="fraud-detection")
     args = parser.parse_args()

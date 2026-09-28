@@ -3,24 +3,33 @@ Data drift check using Evidently.
 
 Run:
     python src/monitor_drift.py
+    python src/monitor_drift.py --data-path data/creditcard.csv
     python src/monitor_drift.py --simulate-drift   # for testing/demo only
 
-Compares an early batch of data/transactions.csv (the "reference" - what
-the current production model was trained on) against a later batch (the
-"current" incoming data). Writes models/drift_report.json and, if running
-inside GitHub Actions, sets a `drift_detected` output so the calling
-workflow can branch on it.
+Compares an early batch of the dataset (the "reference" - what the current
+production model was trained on) against a later batch (the "current"
+incoming data). Writes models/drift_report.json and, if running inside
+GitHub Actions, sets a `drift_detected` output so the calling workflow can
+branch on it.
+
+Batch splitting: src/generate_data.py's synthetic data has an explicit
+`batch` column. The real Kaggle dataset doesn't - if it's missing, this
+script derives an equivalent split from the Time column instead (both
+datasets have one), so the same --reference-batch/--current-batch flags
+work against either.
 
 Note on the synthetic dataset: since src/generate_data.py generates all
 batches from the same distribution, real drift essentially never fires
 here - there's nothing to detect. --simulate-drift artificially shifts the
 "current" batch so you can actually exercise and demo the full detection
 -> retrain loop. Remove reliance on it once you're running against real,
-naturally-arriving data.
+naturally-arriving data (the real dataset should show at least some
+natural drift across its ~2-day span).
 """
 import argparse
 import json
 import os
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -28,8 +37,11 @@ import pandas as pd
 from evidently.metric_preset import DataDriftPreset
 from evidently.report import Report
 
-FEATURE_COLUMNS = [f"V{i+1}" for i in range(10)] + ["Amount"]
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from src.schema import FEATURE_COLUMNS, TIME_COLUMN
+
 DRIFT_SHARE_THRESHOLD = 0.3  # promote-to-retrain if 30%+ of columns drifted
+N_BATCHES = 5
 
 
 def write_github_output(drift_detected: bool):
@@ -38,6 +50,14 @@ def write_github_output(drift_detected: bool):
         return
     with open(gh_out, "a") as f:
         f.write(f"drift_detected={'true' if drift_detected else 'false'}\n")
+
+
+def ensure_batch_column(df: pd.DataFrame) -> pd.DataFrame:
+    if "batch" in df.columns:
+        return df
+    df = df.copy()
+    df["batch"] = pd.qcut(df[TIME_COLUMN], N_BATCHES, labels=False)
+    return df
 
 
 def main():
@@ -55,6 +75,7 @@ def main():
     args = parser.parse_args()
 
     df = pd.read_csv(args.data_path)
+    df = ensure_batch_column(df)
     reference = df[df["batch"] == args.reference_batch][FEATURE_COLUMNS].copy()
     current = df[df["batch"] == args.current_batch][FEATURE_COLUMNS].copy()
 

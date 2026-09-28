@@ -28,13 +28,8 @@ jobs:
       - name: Unit tests
         run: pytest tests/ -v
 
-      - name: Generate data
+      - name: Generate data (stand-in for real dataset)
         run: python src/generate_data.py
-
-      - name: Verify generated data
-        run: |
-          ls -lah data/
-          test -f data/creditcard.csv
 
       - name: Train model
         run: python src/train.py
@@ -77,7 +72,7 @@ jobs:
         with:
           image-ref: ${{ env.IMAGE_NAME }}:${{ github.sha }}
           severity: HIGH,CRITICAL
-          exit-code: "0"
+          exit-code: "1"
 
       # TODO: add SonarCloud SAST step here once SONAR_TOKEN is configured
       # as a repo secret - copy the step from the Acquisitions API workflow.

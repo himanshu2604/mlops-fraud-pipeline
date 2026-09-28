@@ -1,25 +1,27 @@
 """
-Generates a synthetic, imbalanced transaction dataset shaped like the
-Kaggle "Credit Card Fraud Detection" dataset (V1..V10 anonymized features,
-Amount, Time, Class). This is a STAND-IN so the pipeline runs end-to-end
-without needing Kaggle credentials.
+Generates a synthetic, imbalanced transaction dataset shaped like the real
+Kaggle "Credit Card Fraud Detection" dataset (V1..V28 anonymized features,
+Amount, Time, Class). This stays in use as the CI/dev stand-in even after
+switching to the real dataset locally - CI can't download Kaggle data
+without credentials, so it keeps training on this synthetic data. Your
+real creditcard.csv is a separate, parallel data path (see src/schema.py
+and the --data-path flag on train.py / monitor_drift.py).
 
-Swap it out for the real dataset later:
-  https://www.kaggle.com/datasets/mlg-ulb/creditcardfraud
-Drop the CSV at data/transactions.csv with the same column names
-(rename "Class" if needed) and everything downstream keeps working.
-
-A `batch` column (0-4) simulates five sequential time windows so you can
-later feed batches through Evidently to simulate drift between an early
-"reference" batch and a later "current" batch.
+A `batch` column (0-4) simulates five sequential time windows so
+monitor_drift.py can compare an early "reference" batch against a later
+"current" one. The real dataset has no such column - monitor_drift.py
+derives an equivalent one from the real Time column instead.
 """
+import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from src.schema import N_FEATURES, TARGET_COLUMN, TIME_COLUMN
+
 N_ROWS = 20_000
-N_FEATURES = 10
 FRAUD_RATE = 0.006  # ~0.6%, similar order of magnitude to the real dataset
 N_BATCHES = 5
 RANDOM_SEED = 42
@@ -48,20 +50,20 @@ def generate(n_rows: int = N_ROWS, fraud_rate: float = FRAUD_RATE, seed: int = R
 
     df = pd.DataFrame(features, columns=[f"V{i+1}" for i in range(N_FEATURES)])
     df["Amount"] = amount
-    df["Class"] = label
+    df[TARGET_COLUMN] = label
 
     # Shuffle rows, assign a fake monotonic Time + batch id
     df = df.sample(frac=1.0, random_state=seed).reset_index(drop=True)
-    df["Time"] = np.arange(len(df))
-    df["batch"] = pd.qcut(df["Time"], N_BATCHES, labels=False)
+    df[TIME_COLUMN] = np.arange(len(df))
+    df["batch"] = pd.qcut(df[TIME_COLUMN], N_BATCHES, labels=False)
 
     return df
 
 
 if __name__ == "__main__":
     df = generate()
-    out_path = "data/creditcard.csv"
+    out_path = "data/transactions.csv"
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(out_path, index=False)
-    print(f"Wrote {len(df)} rows ({df['Class'].sum()} fraud) to {out_path}")
+    print(f"Wrote {len(df)} rows ({df[TARGET_COLUMN].sum()} fraud) to {out_path}")
     print(df["batch"].value_counts().sort_index())
