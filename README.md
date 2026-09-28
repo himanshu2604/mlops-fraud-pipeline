@@ -170,3 +170,21 @@ This one treats the model like production infrastructure: hard CI gates
 (security scan + quality gate, not just "it ran"), GitOps deployment with
 automated rollback via `selfHeal`, and — once Phase 2 lands — a fully
 automated drift-detection-to-retraining loop with zero manual intervention.
+
+## Requirements files and the image scan
+
+There are two requirements files on purpose:
+
+- `requirements-serve.txt`: only what the FastAPI server imports. The Docker
+  image installs just this, so Trivy only scans packages that actually ship.
+- `requirements.txt`: includes the file above, plus mlflow, evidently, pytest
+  and ruff for training, tests, drift checks and CI.
+
+Keeping mlflow and evidently out of the image is what keeps the Trivy gate
+meaningful. Before the split, the image carried about 100 extra packages and
+25 mlflow CVEs the server never touched.
+
+The Trivy step runs with `ignore-unfixed: true`. It still fails the build on
+any HIGH or CRITICAL finding that has a fix available. It skips findings with
+no upstream fix (mostly Debian base image packages), since nothing in this
+repo can resolve those. Revisit that if you need a stricter policy.

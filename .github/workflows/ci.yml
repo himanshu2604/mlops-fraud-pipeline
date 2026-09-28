@@ -73,6 +73,10 @@ jobs:
           image-ref: ${{ env.IMAGE_NAME }}:${{ github.sha }}
           severity: HIGH,CRITICAL
           exit-code: "1"
+          # Block on anything we can actually fix. Findings with no upstream
+          # fix (most of the Debian base image ones) can't be resolved by
+          # changing this repo, so they shouldn't fail the build.
+          ignore-unfixed: true
 
       # TODO: add SonarCloud SAST step here once SONAR_TOKEN is configured
       # as a repo secret - copy the step from the Acquisitions API workflow.
