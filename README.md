@@ -1,59 +1,88 @@
 # MLOps Fraud Detection Pipeline
 
-An end-to-end MLOps platform for a fraud-detection model, built with the
-same DevSecOps/GitOps rigor as [acquisitions-api](https://github.com/himanshu2604/acquisitions-api):
-hard CI quality gates, GitOps-driven deployment, and full observability —
-applied to a model lifecycle instead of application code.
+[![CI](https://github.com/himanshu2604/mlops-fraud-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/himanshu2604/mlops-fraud-pipeline/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+A fraud-detection model run the way production infrastructure is run, not
+the way a notebook is run: CI quality gates, GitOps deployment, drift
+detection, and a closed-loop retraining pipeline, all on Kubernetes.
+
+Built as a companion to [acquisitions-api](https://github.com/himanshu2604/acquisitions-api),
+applying the same DevSecOps/GitOps discipline to a model lifecycle instead
+of application code.
+
+## What it does
+
+Trains a logistic regression fraud classifier on the real [Kaggle Credit
+Card Fraud Detection dataset](https://www.kaggle.com/datasets/mlg-ulb/creditcardfraud),
+serves it behind FastAPI, and deploys it to Kubernetes via ArgoCD. From
+there:
+
+- Every push runs lint, tests, a training quality gate, and a Trivy
+  security scan before an image is built or pushed
+- ArgoCD watches the repo and rolls out changes on its own, with
+  self-healing on pod failure
+- Prometheus scrapes the service, Grafana dashboards and Alertmanager
+  rules sit on top
+- A daily drift check compares incoming data against the training set; if
+  drift crosses a threshold, it triggers an automatic retrain, and a model
+  that beats the current champion gets promoted, no human in the loop
 
 ## Architecture
 
-```
-generate/train (MLflow tracking)
-        │
-        ▼
-GitHub Actions CI: lint → test → train → quality gate → Trivy scan → build → push
-        │
-        ▼
-ArgoCD (GitOps, selfHeal: true) ──> Kubernetes Deployment (FastAPI serving)
-        │                                  │ MODEL_URI from ConfigMap
-        │                                  ▼
-        │                          loads model from S3/HTTP at startup
-        ▼
-Prometheus scrapes /metrics ──> Grafana dashboards ──> Alertmanager
+```mermaid
+flowchart TD
+    A["Local: generate/train data<br/>MLflow experiment tracking"] --> B["GitHub Actions CI<br/>lint -> test -> train -> quality gate -> Trivy scan -> build -> push"]
+    B --> C["ArgoCD (GitOps, selfHeal true)"]
+    C --> D["Kubernetes Deployment<br/>FastAPI serving"]
+    D -->|"MODEL_URI from ConfigMap"| E["Model loaded from S3 at startup"]
+    D --> F["Prometheus scrapes /metrics"]
+    F --> G["Grafana dashboards"]
+    F --> H["Alertmanager rules"]
 
-Continuous training loop (closes back into the ConfigMap above):
-Drift Check workflow (daily cron) ──> monitor_drift.py (Evidently)
-        │ drift_detected == true
-        ▼
-repository_dispatch ──> Retrain workflow ──> train.py ──> promote.py
-        │ new model beats champion?
-        ▼
-uploads to S3, patches k8s/configmap.yaml, commits + pushes
-        │
-        ▼
-ArgoCD detects the commit, rolls out the new model - no human, no rebuild
+    I["Drift Check workflow<br/>daily cron, Evidently"] -->|"drift_detected"| J["repository_dispatch"]
+    J --> K["Retrain workflow<br/>train.py -> promote.py"]
+    K -->|"beats current champion"| L["Upload to S3, patch configmap, commit + push"]
+    L --> C
 ```
 
-## Status / Roadmap
+The bottom half is the part most portfolio projects skip: drift detection
+feeding an automatic retrain that promotes a new model with zero manual
+steps, closing the loop back into the same GitOps deployment above it.
 
-- [x] Synthetic dataset generator (stand-in for the real Kaggle dataset)
-- [x] Baseline training script with MLflow tracking
-- [x] FastAPI serving with Prometheus instrumentation
-- [x] Model artifact decoupled from the image (loads from S3/HTTP/local via `MODEL_URI`)
-- [x] Unit tests
-- [x] Dockerfile
-- [x] CI pipeline (lint, test, train, quality gate, Trivy scan, build, push)
-- [x] K8s manifests (Deployment, Service, Namespace, ConfigMap, **Ingress**) + ArgoCD Application
-- [x] Evidently drift detection (`src/monitor_drift.py`, with a `--simulate-drift` flag for testing)
-- [x] Champion-vs-challenger promotion logic (`src/promote.py`)
-- [x] Drift Check + Retrain workflows wired together via `repository_dispatch`
-- [x] ServiceMonitor + PrometheusRule + starter Grafana dashboard for kube-prometheus-stack
-- [ ] **Deploy to a real cluster and confirm ArgoCD sync** — nothing above is proven live until this happens
-- [ ] Configure `MODEL_S3_BUCKET` + AWS secrets and confirm a real S3 upload/promotion works (only tested in local-fallback mode so far)
-- [ ] Grafana dashboard wired to the Prometheus metrics exposed here
-- [x] Real Kaggle Credit Card Fraud dataset wired in as a parallel path (`data/creditcard.csv`), schema centralized in `src/schema.py`
-- [ ] SonarCloud SAST step in CI (copy from acquisitions-api)
-- [ ] Verify the `Drift Check` → `Retrain` `repository_dispatch` handoff actually fires end-to-end on GitHub (designed per GitHub's docs, not yet observed live)
+## Tech stack
+
+| Layer | Tools |
+|---|---|
+| Model | scikit-learn (LogisticRegression), MLflow tracking |
+| Serving | FastAPI, Uvicorn, Prometheus client |
+| Drift detection | Evidently |
+| Containers | Docker (separate slim image for serving vs. training/CI) |
+| CI/CD | GitHub Actions, Trivy |
+| Orchestration | Kubernetes, ArgoCD (GitOps) |
+| Observability | Prometheus, Grafana, Alertmanager (kube-prometheus-stack) |
+| Storage | AWS S3 (model artifacts, decoupled from the image) |
+
+## Status
+
+Live and verified on a real cluster:
+- CI pipeline (lint, test, train, quality gate, Trivy scan, build, push)
+- ArgoCD GitOps deployment with self-healing confirmed by killing a pod
+  and watching it recover automatically
+- Model artifact decoupled from the image, loaded from S3 at runtime via
+  a ConfigMap-driven `MODEL_URI`
+- Real dataset in use (not synthetic) for the deployed model
+- Monitoring stack installed and wired to the service (ServiceMonitor,
+  alert rules, starter Grafana dashboard)
+
+Built and tested locally, not yet confirmed on a live GitHub Actions run:
+- The full `Drift Check` -> `repository_dispatch` -> `Retrain` -> promote
+  -> ArgoCD sync loop, end to end, unattended
+
+Not done yet:
+- SonarCloud SAST in CI (present in acquisitions-api, not yet ported here)
+- Alertmanager notification routing (rules evaluate; nothing gets notified
+  anywhere yet)
 
 ## Local setup
 
@@ -61,33 +90,43 @@ ArgoCD detects the commit, rolls out the new model - no human, no rebuild
 python -m venv .venv && source .venv/bin/activate
 make install
 
-make gen-data      # writes data/transactions.csv (synthetic, swap later)
-make train         # trains model, logs to ./mlruns, saves models/model.pkl
-make test          # runs unit tests
+make gen-data      # synthetic stand-in data, for quick local testing
+make train         # trains on synthetic data, logs to ./mlruns
+make test          # unit tests
 
-make serve         # http://localhost:8000 — /health, /predict, /metrics
+make serve         # http://localhost:8000 - /health, /predict, /metrics
 ```
 
-Inspect training runs:
+To train on the real dataset instead, download `creditcard.csv` from
+Kaggle (link above) into `data/`, then:
 ```bash
-mlflow ui   # http://localhost:5000
+make train-real
+make drift-check-real
 ```
+
+Inspect training runs: `mlflow ui` at `http://localhost:5000`.
 
 ## Docker
 
 ```bash
 make docker-build
-make docker-run    # http://localhost:8000
+make docker-run
 ```
 
-## Deploying (GitOps)
+Two requirements files exist on purpose: `requirements-serve.txt` is only
+what the FastAPI server imports, and it's all the Docker image installs.
+`requirements.txt` adds mlflow, evidently, pytest and ruff on top, for
+training and CI. Keeping mlflow out of the served image is what keeps the
+Trivy scan meaningful - it previously carried about 100 unused packages
+and 25 mlflow CVEs the server never touched.
 
-1. Push this repo to GitHub, replace `OWNER` in `k8s/deployment.yaml` and
-   `argocd/application.yaml` with your GitHub username.
-2. Set a real `MODEL_URI` in `k8s/configmap.yaml` (or leave the placeholder
-   and promote a model via `make promote` first - see below).
-3. If using S3, create the AWS credentials secret imperatively - **never
-   commit real credentials**:
+## Deploying
+
+1. Fork/clone, replace `OWNER` in `k8s/deployment.yaml` and
+   `argocd/application.yaml` with your GitHub username
+2. `kubectl apply -f argocd/application.yaml` - ArgoCD takes it from there
+3. Create the S3 credentials secret (never commit real credentials - see
+   `secret.example.yaml` for the shape):
    ```bash
    kubectl create secret generic fraud-model-aws-creds \
      --namespace=mlops-fraud \
@@ -95,96 +134,47 @@ make docker-run    # http://localhost:8000
      --from-literal=AWS_SECRET_ACCESS_KEY=your-secret-key \
      --from-literal=AWS_DEFAULT_REGION=ap-south-1
    ```
-   See `secret.example.yaml` at the repo root for the shape (template only,
-   deliberately kept outside `k8s/` so ArgoCD never applies it).
-4. For the Ingress to work on Minikube: `minikube addons enable ingress`,
-   then add `<minikube ip> fraud-detection.local` to `/etc/hosts`.
-5. Point ArgoCD at it: `kubectl apply -f argocd/application.yaml`
-6. CI builds and pushes `ghcr.io/<you>/mlops-fraud-pipeline:latest` on every
-   merge to `main`; ArgoCD's `selfHeal: true` picks up the new image and
-   rolls it out with zero downtime (`maxUnavailable: 0`).
+4. `minikube addons enable ingress` if running locally, then map
+   `fraud-detection.local` to your cluster IP in `/etc/hosts`
 
-## Continuous training loop (Phase 2)
+Full walkthrough, including the monitoring stack, in the sections below.
+
+## Continuous training loop
 
 ```bash
-make promote        # compares models/metrics.json against the current
-                     # champion (models/champion_metrics.json); promotes
-                     # (uploads to S3, patches k8s/configmap.yaml) only if
-                     # better. No AWS creds? Falls back to a local copy so
-                     # you can still test the decision logic.
-
-make drift-check     # runs Evidently against two batches of the synthetic
-                     # data, writes models/drift_report.json
-make drift-simulate  # same, but artificially shifts the data first - the
-                     # synthetic dataset has no real drift, so use this to
-                     # actually see the "drift detected" path fire
+make promote          # compares models/metrics.json against the current
+                       # champion; promotes (S3 upload + configmap patch)
+                       # only if it's actually better
+make drift-check       # Evidently check against the synthetic data
+make drift-simulate    # artificially shifts data first, to actually
+                       # exercise the "drift detected" path on demand
 ```
 
-In GitHub Actions, this is `drift-check.yml` (daily cron + manual trigger)
-dispatching to `retrain.yml` (retrains, evaluates, promotes, commits the
-`k8s/configmap.yaml` change) whenever drift crosses the threshold. For this
-to actually work end to end you need:
-- `MODEL_S3_BUCKET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
-  `AWS_DEFAULT_REGION` set as **GitHub Actions repo secrets** (Settings →
-  Secrets and variables → Actions) - without these, `promote.py` runs in
-  local-fallback mode inside the CI runner, which won't be reachable by
-  your actual cluster.
-- The default `GITHUB_TOKEN` triggering `repository_dispatch` for a
-  same-repo dispatch, per GitHub's docs. If `retrain.yml` doesn't fire
-  after a drift-check run, the fallback is a repo-scoped PAT stored as a
-  secret, used in place of `GITHUB_TOKEN` in that step.
+In CI, `drift-check.yml` runs daily and dispatches to `retrain.yml` on
+detected drift. This needs `MODEL_S3_BUCKET`, `AWS_ACCESS_KEY_ID`,
+`AWS_SECRET_ACCESS_KEY`, and `AWS_DEFAULT_REGION` set as GitHub Actions
+secrets - without them, promotion runs in a local-fallback mode that never
+reaches the real cluster.
 
-## Real dataset vs. synthetic
+## Repository structure
 
-Both exist side by side now, on purpose:
-
-- `data/transactions.csv` — synthetic, generated by `src/generate_data.py`.
-  CI and the Drift Check / Retrain workflows use this, since GitHub Actions
-  can't download Kaggle data without credentials being wired in separately.
-- `data/creditcard.csv` — the real [Kaggle Credit Card Fraud
-  Detection](https://www.kaggle.com/datasets/mlg-ulb/creditcardfraud)
-  dataset (`Time`, `V1`-`V28`, `Amount`, `Class`). Not committed to git
-  (matches the existing `data/*.csv` gitignore rule) — download it
-  yourself and drop it at that path.
-
-The feature schema (`V1`-`V28` + `Amount`, target `Class`) lives in one
-place, `src/schema.py`, and every script imports it from there rather than
-each hardcoding its own copy - that's what broke the first time the
-dataset changed shape. `src/serve/main.py`'s request model is generated
-from that same schema rather than hand-typed, so it can't silently drift
-out of sync again either.
-
-To train on the real data locally:
-```bash
-python src/train.py --data-path data/creditcard.csv
-python src/monitor_drift.py --data-path data/creditcard.csv
 ```
-The real dataset has no `batch` column (that was a synthetic-only
-convenience) - `monitor_drift.py` derives an equivalent split from the
-real `Time` column automatically when `batch` isn't present.
+src/
+  schema.py        single source of truth for the feature schema
+  generate_data.py synthetic data stand-in
+  train.py         training + MLflow logging
+  promote.py       champion-vs-challenger promotion logic
+  monitor_drift.py Evidently drift check
+  serve/main.py    FastAPI serving app
+k8s/               Deployment, Service, ConfigMap, Ingress, monitoring
+argocd/            ArgoCD Application manifest
+.github/workflows/ ci.yml, drift-check.yml, retrain.yml
+```
 
 ## Why this project
 
 Most MLOps portfolio projects stop at "train a model, wrap it in Flask."
-This one treats the model like production infrastructure: hard CI gates
-(security scan + quality gate, not just "it ran"), GitOps deployment with
-automated rollback via `selfHeal`, and — once Phase 2 lands — a fully
-automated drift-detection-to-retraining loop with zero manual intervention.
-
-## Requirements files and the image scan
-
-There are two requirements files on purpose:
-
-- `requirements-serve.txt`: only what the FastAPI server imports. The Docker
-  image installs just this, so Trivy only scans packages that actually ship.
-- `requirements.txt`: includes the file above, plus mlflow, evidently, pytest
-  and ruff for training, tests, drift checks and CI.
-
-Keeping mlflow and evidently out of the image is what keeps the Trivy gate
-meaningful. Before the split, the image carried about 100 extra packages and
-25 mlflow CVEs the server never touched.
-
-The Trivy step runs with `ignore-unfixed: true`. It still fails the build on
-any HIGH or CRITICAL finding that has a fix available. It skips findings with
-no upstream fix (mostly Debian base image packages), since nothing in this
-repo can resolve those. Revisit that if you need a stricter policy.
+This one treats the model like production infrastructure: CI gates on
+both security and model quality, GitOps deployment with automated
+recovery, and a drift-detection-to-retraining loop that promotes a new
+model without anyone touching the cluster.
