@@ -7,4 +7,4 @@ data:
   # Updated automatically by .github/workflows/retrain.yml when a newly
   # trained model beats the current champion. ArgoCD picks up the change
   # to this file and rolls the deployment - this is the whole CT loop.
-  MODEL_URI: "models/production_model_20260925T050644Z.pkl"
+  MODEL_URI: "s3://himanshu-mlops-fraud-models/models/production/model-20261003T053632Z.pkl"
