@@ -2,6 +2,14 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+# The base image tag doesn't always carry the latest Debian security
+# patches - this pulls them at build time rather than trusting whatever
+# was baked in when the tag was last published.
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements-serve.txt .
 RUN pip install --no-cache-dir -r requirements-serve.txt \
     && pip uninstall -y setuptools wheel

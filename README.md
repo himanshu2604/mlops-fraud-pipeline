@@ -124,6 +124,11 @@ make docker-build
 make docker-run
 ```
 
+The Dockerfile runs `apt-get upgrade` at build time, since the base
+image's cached layer can lag behind Debian's actual security patches -
+that's what caught a HIGH-severity `libpcre2` CVE in CI that a fresh
+`python:3.11-slim` pull alone didn't fix.
+
 Two requirements files exist on purpose: `requirements-serve.txt` is only
 what the FastAPI server imports, and it's all the Docker image installs.
 `requirements.txt` adds mlflow, evidently, pytest and ruff on top, for
