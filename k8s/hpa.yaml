@@ -1,0 +1,28 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: fraud-detection-service
+  namespace: mlops-fraud
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: fraud-detection-service
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          # % of the 100m CPU *request* in deployment.yaml, not the 500m
+          # limit - scales out once pods are consistently working harder
+          # than their baseline, before they're anywhere near throttled.
+          averageUtilization: 70
+  behavior:
+    scaleDown:
+      # Wait 2 minutes of sustained low load before removing a pod, so a
+      # brief traffic dip doesn't cause flapping (scale down, immediately
+      # scale back up, repeat).
+      stabilizationWindowSeconds: 120

@@ -1,0 +1,50 @@
+# Template only - the real webhook URL is a credential, never commit it.
+#
+# Usage:
+#   1. Create a Slack Incoming Webhook: Slack workspace -> a channel ->
+#      channel settings -> Integrations -> Add an App -> search "Incoming
+#      Webhooks" -> Add to Slack -> pick the channel -> copy the Webhook URL
+#      (https://hooks.slack.com/services/...)
+#   2. cp monitoring/alertmanager-values.example.yaml monitoring/alertmanager-values.local.yaml
+#      (the .local.yaml name is gitignored - see .gitignore)
+#   3. Paste your real webhook URL into that copy, replacing the placeholder
+#   4. Apply it on top of the existing Helm release, don't reinstall:
+#        helm upgrade --reuse-values \
+#          -f monitoring/alertmanager-values.local.yaml \
+#          monitoring prometheus-community/kube-prometheus-stack -n monitoring
+#   5. Confirm: kubectl get pods -n monitoring (alertmanager pod restarts),
+#      then trigger a test alert and check Slack.
+
+alertmanager:
+  config:
+    global:
+      resolve_timeout: 5m
+    route:
+      receiver: "null"
+      group_by: ["alertname", "severity"]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      routes:
+        # kube-prometheus-stack's built-in Watchdog alert fires
+        # continuously by design - it's a dead-man's-switch proving the
+        # alerting pipeline itself is alive. Route it to null or it will
+        # spam Slack nonstop with "Watchdog firing" every few minutes.
+        - matchers:
+            - alertname = "Watchdog"
+          receiver: "null"
+        # Catches the three alerts in k8s/prometheusrule.yaml
+        # (ModelLoadFailed, HighPredictionLatency, ServiceDown) plus
+        # anything else labeled critical or warning.
+        - matchers:
+            - severity =~ "critical|warning"
+          receiver: "slack-notifications"
+    receivers:
+      - name: "null"
+      - name: "slack-notifications"
+        slack_configs:
+          - channel: "#fraud-detection-alerts"
+            send_resolved: true
+            api_url: "REPLACE_WITH_YOUR_SLACK_WEBHOOK_URL"
+            title: "{{ .CommonAnnotations.summary }}"
+            text: "{{ .CommonAnnotations.description }}"

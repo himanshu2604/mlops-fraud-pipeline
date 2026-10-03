@@ -53,8 +53,43 @@ jobs:
           name: model
           path: models/
 
-  build-scan-push:
+  sonar-scan:
     needs: lint-test-train
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # SonarCloud wants full git history for accurate new-code and
+          # blame analysis - a shallow checkout degrades that.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - run: pip install -r requirements.txt
+
+      - name: Tests with coverage
+        run: pytest tests/ -v --cov=src --cov-report=xml
+
+      - name: SonarQube Cloud scan
+        uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      # Same hard-gate philosophy as Trivy below: a failed SonarCloud
+      # Quality Gate fails this job, which blocks build-scan-push from
+      # running at all - a SAST finding stops the image from shipping,
+      # not just gets logged somewhere nobody reads.
+      - name: Wait for SonarCloud Quality Gate
+        uses: SonarSource/sonarqube-quality-gate-action@7a5fffe8e523c40e0c740b6bc2712ab503e52efa # v1.2.1
+        timeout-minutes: 5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+  build-scan-push:
+    needs: [lint-test-train, sonar-scan]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -77,9 +112,6 @@ jobs:
           # fix (most of the Debian base image ones) can't be resolved by
           # changing this repo, so they shouldn't fail the build.
           ignore-unfixed: true
-
-      # TODO: add SonarCloud SAST step here once SONAR_TOKEN is configured
-      # as a repo secret - copy the step from the Acquisitions API workflow.
 
       - name: Log in to GHCR
         if: github.ref == 'refs/heads/main'

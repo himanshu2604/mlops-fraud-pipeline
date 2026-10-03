@@ -18,12 +18,14 @@ Card Fraud Detection dataset](https://www.kaggle.com/datasets/mlg-ulb/creditcard
 serves it behind FastAPI, and deploys it to Kubernetes via ArgoCD. From
 there:
 
-- Every push runs lint, tests, a training quality gate, and a Trivy
-  security scan before an image is built or pushed
+- Every push runs lint, tests, a training quality gate, a SonarCloud SAST
+  gate, and a Trivy security scan before an image is built or pushed - any
+  one of them failing blocks the image from shipping
 - ArgoCD watches the repo and rolls out changes on its own, with
   self-healing on pod failure
-- Prometheus scrapes the service, Grafana dashboards and Alertmanager
-  rules sit on top
+- A HorizontalPodAutoscaler scales the service 2 to 5 replicas on CPU load
+- Prometheus scrapes the service, Grafana dashboards sit on top, and
+  Alertmanager routes critical/warning alerts to Slack
 - A daily drift check compares incoming data against the training set; if
   drift crosses a threshold, it triggers an automatic retrain, and a model
   that beats the current champion gets promoted, no human in the loop
@@ -32,13 +34,17 @@ there:
 
 ```mermaid
 flowchart TD
-    A["Local: generate/train data<br/>MLflow experiment tracking"] --> B["GitHub Actions CI<br/>lint -> test -> train -> quality gate -> Trivy scan -> build -> push"]
-    B --> C["ArgoCD (GitOps, selfHeal true)"]
+    A["Local: generate/train data<br/>MLflow experiment tracking"] --> B["GitHub Actions CI<br/>lint -> test -> train -> quality gate"]
+    B --> S["SonarCloud SAST gate"]
+    S --> T["Trivy scan -> build -> push"]
+    T --> C["ArgoCD (GitOps, selfHeal true)"]
     C --> D["Kubernetes Deployment<br/>FastAPI serving"]
+    D <-->|"scales 2-5 replicas on CPU"| HPA["HorizontalPodAutoscaler"]
     D -->|"MODEL_URI from ConfigMap"| E["Model loaded from S3 at startup"]
     D --> F["Prometheus scrapes /metrics"]
     F --> G["Grafana dashboards"]
     F --> H["Alertmanager rules"]
+    H -->|"critical/warning"| SL["Slack"]
 
     I["Drift Check workflow<br/>daily cron, Evidently"] -->|"drift_detected"| J["repository_dispatch"]
     J --> K["Retrain workflow<br/>train.py -> promote.py"]
@@ -58,9 +64,9 @@ steps, closing the loop back into the same GitOps deployment above it.
 | Serving | FastAPI, Uvicorn, Prometheus client |
 | Drift detection | Evidently |
 | Containers | Docker (separate slim image for serving vs. training/CI) |
-| CI/CD | GitHub Actions, Trivy |
-| Orchestration | Kubernetes, ArgoCD (GitOps) |
-| Observability | Prometheus, Grafana, Alertmanager (kube-prometheus-stack) |
+| CI/CD | GitHub Actions, SonarCloud (SAST), Trivy |
+| Orchestration | Kubernetes, ArgoCD (GitOps), HorizontalPodAutoscaler |
+| Observability | Prometheus, Grafana, Alertmanager -> Slack (kube-prometheus-stack) |
 | Storage | AWS S3 (model artifacts, decoupled from the image) |
 
 ## Status
@@ -75,14 +81,19 @@ Live and verified on a real cluster:
 - Monitoring stack installed and wired to the service (ServiceMonitor,
   alert rules, starter Grafana dashboard)
 
+Built, requires one-time setup on your own cluster/account before it's
+live (see Deploying below - each needs a credential or token only you can
+provide, so I can't pre-verify these):
+- SonarCloud SAST gate in CI - needs a `SONAR_TOKEN` repo secret and a
+  project imported at sonarcloud.io
+- HorizontalPodAutoscaler (2-5 replicas on CPU) - needs the cluster's
+  metrics-server addon enabled, and hasn't been load-tested to confirm it
+  actually scales under real traffic
+- Alertmanager -> Slack routing - needs your own Slack Incoming Webhook URL
+
 Built and tested locally, not yet confirmed on a live GitHub Actions run:
 - The full `Drift Check` -> `repository_dispatch` -> `Retrain` -> promote
   -> ArgoCD sync loop, end to end, unattended
-
-Not done yet:
-- SonarCloud SAST in CI (present in acquisitions-api, not yet ported here)
-- Alertmanager notification routing (rules evaluate; nothing gets notified
-  anywhere yet)
 
 ## Local setup
 
@@ -136,6 +147,15 @@ and 25 mlflow CVEs the server never touched.
    ```
 4. `minikube addons enable ingress` if running locally, then map
    `fraud-detection.local` to your cluster IP in `/etc/hosts`
+5. `minikube addons enable metrics-server` - the HPA in `k8s/hpa.yaml`
+   can't read CPU usage without it, and silently does nothing if it's
+   missing rather than erroring loudly
+6. For Slack alerts: see `monitoring/alertmanager-values.example.yaml` for
+   the full walkthrough (needs your own Slack Incoming Webhook URL)
+7. For the SonarCloud gate: import this repo at sonarcloud.io, then add
+   `SONAR_TOKEN` as a GitHub Actions repo secret (Settings -> Secrets and
+   variables -> Actions). Check `sonar-project.properties` matches the
+   project key/organization SonarCloud assigns on import.
 
 Full walkthrough, including the monitoring stack, in the sections below.
 
@@ -166,9 +186,13 @@ src/
   promote.py       champion-vs-challenger promotion logic
   monitor_drift.py Evidently drift check
   serve/main.py    FastAPI serving app
-k8s/               Deployment, Service, ConfigMap, Ingress, monitoring
+k8s/               Deployment, Service, ConfigMap, Ingress, HPA,
+                   ServiceMonitor, PrometheusRule
 argocd/            ArgoCD Application manifest
+monitoring/        Alertmanager Slack config template (not committed: the
+                   real webhook URL)
 .github/workflows/ ci.yml, drift-check.yml, retrain.yml
+sonar-project.properties  SonarCloud project config
 ```
 
 ## Why this project

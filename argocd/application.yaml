@@ -18,3 +18,11 @@ spec:
       prune: true
     syncOptions:
       - CreateNamespace=true
+  # Without this, selfHeal fights the HorizontalPodAutoscaler: HPA scales
+  # replicas up, ArgoCD sees that as drift from the git-declared replicas
+  # and scales it back down on the next sync, undoing the autoscaler.
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas
